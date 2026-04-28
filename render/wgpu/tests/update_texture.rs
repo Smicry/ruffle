@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Tests for the empty-data guard in `WgpuRenderBackend::update_texture`.
 
 use ruffle_render::backend::RenderBackend;
@@ -6,53 +7,68 @@ use ruffle_render_wgpu::backend::WgpuRenderBackend;
 use ruffle_render_wgpu::target::TextureTarget;
 use ruffle_render_wgpu::wgpu;
 
-/// Build an offscreen backend, or `None` if no wgpu adapter is available.
-fn try_make_backend() -> Option<WgpuRenderBackend<TextureTarget>> {
+const TEXTURE_SIZE: u32 = 4;
+const RGBA_BYTES: usize = (TEXTURE_SIZE * TEXTURE_SIZE * 4) as usize;
+
+/// Build an offscreen backend; panics if no wgpu adapter is available.
+fn make_backend() -> WgpuRenderBackend<TextureTarget> {
     WgpuRenderBackend::for_offscreen(
         (16, 16),
         wgpu::Backends::all(),
-        wgpu::PowerPreference::LowPower,
+        wgpu::PowerPreference::default(),
     )
-    .ok()
+    .expect("wgpu adapter required for update_texture tests")
+}
+
+/// Register a 4x4 RGBA bitmap filled with zeros and return its handle.
+fn register_blank_bitmap(backend: &mut WgpuRenderBackend<TextureTarget>) -> ruffle_render::bitmap::BitmapHandle {
+    backend
+        .register_bitmap(Bitmap::new(
+            TEXTURE_SIZE,
+            TEXTURE_SIZE,
+            BitmapFormat::Rgba,
+            vec![0u8; RGBA_BYTES],
+        ))
+        .expect("register_bitmap")
 }
 
 /// Empty-data bitmap must return Ok instead of panicking on a `0..64` slice
 /// over empty data.
 #[test]
 fn update_texture_with_empty_data_returns_ok() {
-    let Some(mut backend) = try_make_backend() else {
-        eprintln!("No wgpu adapter; skipping");
-        return;
-    };
-
-    let handle = backend
-        .register_bitmap(Bitmap::new(4, 4, BitmapFormat::Rgba, vec![0u8; 64]))
-        .expect("register_bitmap");
+    let mut backend = make_backend();
+    let handle = register_blank_bitmap(&mut backend);
 
     let empty = Bitmap::new(0, 0, BitmapFormat::Rgba, Vec::<u8>::new());
-    assert!(empty.data().is_empty());
-
-    let result = backend.update_texture(&handle, empty, PixelRegion::for_whole_size(4, 4));
-    assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
-}
-
-/// Non-empty path still works.
-#[test]
-fn update_texture_with_non_empty_data_still_works() {
-    let Some(mut backend) = try_make_backend() else {
-        eprintln!("No wgpu adapter; skipping");
-        return;
-    };
-
-    let handle = backend
-        .register_bitmap(Bitmap::new(4, 4, BitmapFormat::Rgba, vec![0u8; 64]))
-        .expect("register_bitmap");
+    assert!(empty.data().is_empty(), "precondition: bitmap data is empty");
 
     backend
         .update_texture(
             &handle,
-            Bitmap::new(4, 4, BitmapFormat::Rgba, vec![255u8; 64]),
-            PixelRegion::for_whole_size(4, 4),
+            empty,
+            PixelRegion::for_whole_size(TEXTURE_SIZE, TEXTURE_SIZE),
+        )
+        .expect("update_texture with empty bitmap must return Ok");
+}
+
+/// Complementary branch: non-empty data must still reach the normal write path
+/// and succeed, guarding against the guard being widened to short-circuit all
+/// updates.
+#[test]
+fn update_texture_with_non_empty_data_still_works() {
+    let mut backend = make_backend();
+    let handle = register_blank_bitmap(&mut backend);
+
+    backend
+        .update_texture(
+            &handle,
+            Bitmap::new(
+                TEXTURE_SIZE,
+                TEXTURE_SIZE,
+                BitmapFormat::Rgba,
+                vec![255u8; RGBA_BYTES],
+            ),
+            PixelRegion::for_whole_size(TEXTURE_SIZE, TEXTURE_SIZE),
         )
         .expect("update_texture");
 }
