@@ -21,7 +21,9 @@ fn make_backend() -> WgpuRenderBackend<TextureTarget> {
 }
 
 /// Register a 4x4 RGBA bitmap filled with zeros and return its handle.
-fn register_blank_bitmap(backend: &mut WgpuRenderBackend<TextureTarget>) -> ruffle_render::bitmap::BitmapHandle {
+fn register_blank_bitmap(
+    backend: &mut WgpuRenderBackend<TextureTarget>,
+) -> ruffle_render::bitmap::BitmapHandle {
     backend
         .register_bitmap(Bitmap::new(
             TEXTURE_SIZE,
@@ -40,7 +42,10 @@ fn update_texture_with_empty_data_returns_ok() {
     let handle = register_blank_bitmap(&mut backend);
 
     let empty = Bitmap::new(0, 0, BitmapFormat::Rgba, Vec::<u8>::new());
-    assert!(empty.data().is_empty(), "precondition: bitmap data is empty");
+    assert!(
+        empty.data().is_empty(),
+        "precondition: bitmap data is empty"
+    );
 
     backend
         .update_texture(
